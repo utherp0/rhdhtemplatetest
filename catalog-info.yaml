@@ -1,0 +1,9 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: rhdhtemplatetest
+  annotations:
+    github.com/project-slug: utherp0/rhdhtemplatetest
+spec:
+  type: other
+  lifecycle: unknown
