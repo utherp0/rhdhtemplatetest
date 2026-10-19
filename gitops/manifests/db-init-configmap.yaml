@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{ values.name }}-db-init
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  init.sql: |
+    -- Schema for the ${{ values.tableName }} table. Re-runnable: the init job applies
+    -- this on every ArgoCD sync.
+    CREATE TABLE IF NOT EXISTS ${{ values.tableName }} (
+        id          BIGSERIAL     PRIMARY KEY,
+        first_name  VARCHAR(100)  NOT NULL,
+        second_name VARCHAR(100)  NOT NULL,
+        age         INTEGER,
+        postcode    VARCHAR(16)
+    );
+
+    -- Seed rows, inserted only while the table is still empty.
+    INSERT INTO ${{ values.tableName }} (first_name, second_name, age, postcode)
+    SELECT *
+      FROM (VALUES
+              ('Ada',  'Lovelace', 36, '1011AB'),
+              ('Alan', 'Turing',   41, '3011AA'),
+              ('Grace','Hopper',   85, '5611BB')
+           ) AS seed (first_name, second_name, age, postcode)
+     WHERE NOT EXISTS (SELECT 1 FROM ${{ values.tableName }});

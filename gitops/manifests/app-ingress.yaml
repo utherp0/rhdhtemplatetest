@@ -1,0 +1,27 @@
+# A plain Ingress rather than an OpenShift Route, so the same manifest works on both:
+# OpenShift's ingress-to-route controller turns this into a Route automatically.
+#
+# No ingressClassName is set, so the cluster's default IngressClass is used. If the
+# cluster has no ingress controller, delete this file and reach the app with:
+#   kubectl -n ${{ values.namespace }} port-forward svc/${{ values.name }} 8080:8080
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ values.name }}
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/component: application
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  rules:
+    - host: ${{ values.name }}.${{ values.baseDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ values.name }}
+                port:
+                  name: http

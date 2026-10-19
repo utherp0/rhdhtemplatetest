@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${{ values.name }}</title>
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --surface: #ffffff;
+    --border: #e4e2dd;
+    --text: #1b1b19;
+    --muted: #6b6963;
+    --accent: #2f5d8c;
+    --danger: #a33a2c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18;
+      --surface: #232320;
+      --border: #3a3a35;
+      --text: #f0efea;
+      --muted: #a3a099;
+      --accent: #7aa9d6;
+      --danger: #e08a7c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.5rem;
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 1.75rem; font-size: .9rem; }
+  .sub code { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  h2 { font-size: .95rem; margin: 0 0 1rem; font-weight: 600; }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .85rem; align-items: end; }
+  label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .3rem; }
+  input {
+    width: 100%; padding: .5rem .6rem; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .actions { display: flex; gap: .5rem; }
+  button {
+    font: inherit; padding: .5rem .9rem; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { filter: brightness(.95); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .5rem; border-bottom: 1px solid var(--border); }
+  th { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.row-actions { text-align: right; white-space: nowrap; }
+  td.row-actions button { padding: .3rem .6rem; font-size: .8rem; }
+  td.row-actions button.del { color: var(--danger); }
+  .empty, .error { color: var(--muted); padding: 1.25rem .5rem; text-align: center; }
+  .error { color: var(--danger); }
+  #status { min-height: 1.25rem; font-size: .85rem; color: var(--muted); margin-bottom: .75rem; }
+  #status.err { color: var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <h1>${{ values.name }}</h1>
+  <p class="sub">Rows of <code>${{ values.tableName }}</code></p>
+
+  <div class="card">
+    <h2 id="form-title">Add a row</h2>
+    <form id="person-form" autocomplete="off">
+      <input type="hidden" id="id">
+      <div><label for="firstName">First name</label><input id="firstName" required maxlength="100"></div>
+      <div><label for="secondName">Second name</label><input id="secondName" required maxlength="100"></div>
+      <div><label for="age">Age</label><input id="age" type="number" min="0" max="150"></div>
+      <div><label for="postcode">Postcode</label><input id="postcode" maxlength="16"></div>
+      <div class="actions">
+        <button type="submit" class="primary" id="submit-btn">Create</button>
+        <button type="button" id="cancel-btn" hidden>Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div id="status" role="status" aria-live="polite"></div>
+    <table>
+      <thead>
+        <tr><th>Id</th><th>First name</th><th>Second name</th><th>Age</th><th>Postcode</th><th></th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const API = '/api/people';
+
+const form = document.getElementById('person-form');
+const rowsEl = document.getElementById('rows');
+const statusEl = document.getElementById('status');
+const formTitle = document.getElementById('form-title');
+const submitBtn = document.getElementById('submit-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+const fields = ['id', 'firstName', 'secondName', 'age', 'postcode'];
+
+function setStatus(message, isError) {
+  statusEl.textContent = message || '';
+  statusEl.classList.toggle('err', Boolean(isError));
+}
+
+function placeholderRow(text, cls) {
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.className = cls;
+  td.textContent = text;
+  tr.appendChild(td);
+  return tr;
+}
+
+async function load() {
+  try {
+    const res = await fetch(API);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    render(await res.json());
+    setStatus('');
+  } catch (err) {
+    rowsEl.replaceChildren(placeholderRow('Could not load rows: ' + err.message, 'error'));
+  }
+}
+
+function render(people) {
+  if (!people.length) {
+    rowsEl.replaceChildren(placeholderRow('No rows yet. Add one above.', 'empty'));
+    return;
+  }
+  rowsEl.replaceChildren(...people.map(person => {
+    const tr = document.createElement('tr');
+    for (const key of fields) {
+      const td = document.createElement('td');
+      td.textContent = person[key] === null || person[key] === undefined ? '' : person[key];
+      tr.appendChild(td);
+    }
+    const actions = document.createElement('td');
+    actions.className = 'row-actions';
+
+    const edit = document.createElement('button');
+    edit.textContent = 'Edit';
+    edit.addEventListener('click', () => startEdit(person));
+
+    const del = document.createElement('button');
+    del.textContent = 'Delete';
+    del.className = 'del';
+    del.addEventListener('click', () => remove(person));
+
+    actions.append(edit, del);
+    tr.appendChild(actions);
+    return tr;
+  }));
+}
+
+function startEdit(person) {
+  for (const key of fields) {
+    document.getElementById(key).value = person[key] === null || person[key] === undefined ? '' : person[key];
+  }
+  formTitle.textContent = 'Edit row ' + person.id;
+  submitBtn.textContent = 'Save';
+  cancelBtn.hidden = false;
+  document.getElementById('firstName').focus();
+}
+
+function resetForm() {
+  form.reset();
+  document.getElementById('id').value = '';
+  formTitle.textContent = 'Add a row';
+  submitBtn.textContent = 'Create';
+  cancelBtn.hidden = true;
+}
+
+async function remove(person) {
+  if (!confirm('Delete ' + person.firstName + ' ' + person.secondName + '?')) return;
+  const res = await fetch(API + '/' + person.id, { method: 'DELETE' });
+  if (res.ok) {
+    setStatus('Deleted row ' + person.id);
+    if (document.getElementById('id').value === String(person.id)) resetForm();
+    load();
+  } else {
+    setStatus('Delete failed: HTTP ' + res.status, true);
+  }
+}
+
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  const id = document.getElementById('id').value;
+  const ageValue = document.getElementById('age').value;
+  const body = {
+    firstName: document.getElementById('firstName').value.trim(),
+    secondName: document.getElementById('secondName').value.trim(),
+    age: ageValue === '' ? null : Number(ageValue),
+    postcode: document.getElementById('postcode').value.trim() || null
+  };
+
+  const res = await fetch(id ? API + '/' + id : API, {
+    method: id ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (res.ok) {
+    setStatus(id ? 'Updated row ' + id : 'Row created');
+    resetForm();
+    load();
+  } else {
+    setStatus((id ? 'Update' : 'Create') + ' failed: HTTP ' + res.status + ' ' + (await res.text()), true);
+  }
+});
+
+cancelBtn.addEventListener('click', resetForm);
+load();
+</script>
+</body>
+</html>

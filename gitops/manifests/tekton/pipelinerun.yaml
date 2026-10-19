@@ -1,0 +1,41 @@
+# Runs the build on every ArgoCD sync, in wave 2: after the database and its schema
+# job, before the application rolls out in wave 3. ArgoCD understands PipelineRun health,
+# so it waits for the build to succeed before deploying the image it just produced.
+#
+# `generateName` gives each run a fresh name, and BeforeHookCreation clears the previous
+# one so the run history does not accumulate.
+#
+# To build by hand without a sync:
+#   tkn pipeline start ${{ values.name }}-build -n ${{ values.namespace }} \
+#       --serviceaccount ${{ values.name }}-build \
+#       --workspace name=source,claimName=${{ values.name }}-build-workspace \
+#       --use-param-defaults --showlog
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: ${{ values.name }}-build-
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/component: build
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  pipelineRef:
+    name: ${{ values.name }}-build
+  taskRunTemplate:
+    serviceAccountName: ${{ values.name }}-build
+  params:
+    - name: git-url
+      value: ${{ values.gitUrl }}
+    - name: git-revision
+      value: main
+    - name: image
+      value: ${{ values.imageUrl }}
+  workspaces:
+    - name: source
+      persistentVolumeClaim:
+        claimName: ${{ values.name }}-build-workspace
+  timeouts:
+    pipeline: 30m

@@ -1,0 +1,16 @@
+# Shared workspace for the build: the cloned source, the Maven output, and a Maven
+# cache under .m2 that survives between runs so repeat builds do not re-download the
+# world. ReadWriteOnce is enough because the two tasks run sequentially.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${{ values.name }}-build-workspace
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/component: build
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

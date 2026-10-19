@@ -1,0 +1,88 @@
+# Creates the ${{ values.tableName }} table before the application rolls out.
+#
+# Run as an ArgoCD Sync hook in wave 1 (after the database, before the app) rather than
+# as a plain resource, because Job specs are immutable: BeforeHookCreation deletes the
+# previous Job so a changed schema can be re-applied. The SQL is re-runnable.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ values.name }}-db-init
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+    app.kubernetes.io/component: database-init
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${{ values.name }}
+        app.kubernetes.io/component: database-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql
+          image: quay.io/sclorg/postgresql-16-c9s:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              echo "Waiting for ${{ values.name }}-db to accept connections..."
+              for attempt in $(seq 1 60); do
+                if pg_isready -h "$PGHOST" -p 5432 -U "$PGUSER" -q; then
+                  echo "Database is ready after ${attempt} attempt(s)."
+                  break
+                fi
+                if [ "$attempt" -eq 60 ]; then
+                  echo "Database never became ready." >&2
+                  exit 1
+                fi
+                sleep 2
+              done
+              echo "Applying schema to ${PGDATABASE}..."
+              psql -v ON_ERROR_STOP=1 -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -f /sql/init.sql
+              echo "Done. Rows now in ${{ values.tableName }}:"
+              psql -t -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c 'SELECT count(*) FROM ${{ values.tableName }};'
+          env:
+            - name: PGHOST
+              value: ${{ values.name }}-db
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ values.name }}-db
+                  key: database-name
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ values.name }}-db
+                  key: database-user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ values.name }}-db
+                  key: database-password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+      volumes:
+        - name: sql
+          configMap:
+            name: ${{ values.name }}-db-init

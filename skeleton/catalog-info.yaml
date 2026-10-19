@@ -1,0 +1,76 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ${{ values.name }}
+  description: ${{ values.description }}
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+    backstage.io/kubernetes-id: ${{ values.name }}
+    argocd/app-name: ${{ values.name }}
+  tags:
+    - quarkus
+    - java
+    - postgresql
+    - crud
+  links:
+    - url: https://${{ values.gitopsHost }}/${{ values.gitopsOwner }}/${{ values.gitopsRepo }}
+      title: GitOps manifests
+      icon: github
+spec:
+  type: service
+  lifecycle: experimental
+  owner: ${{ values.owner | dump }}
+  providesApis:
+    - ${{ values.name }}-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ${{ values.name }}-api
+  description: CRUD API over the ${{ values.tableName }} table
+spec:
+  type: openapi
+  lifecycle: experimental
+  owner: ${{ values.owner | dump }}
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: ${{ values.name }}
+      description: CRUD over the ${{ values.tableName }} table
+      version: 1.0.0
+    paths:
+      /api/people:
+        get:
+          summary: List all rows
+          responses:
+            '200':
+              description: All rows
+        post:
+          summary: Create a row
+          responses:
+            '201':
+              description: Created
+            '400':
+              description: Validation failed
+      /api/people/{id}:
+        get:
+          summary: Read one row
+          responses:
+            '200':
+              description: The row
+            '404':
+              description: No such row
+        put:
+          summary: Update a row
+          responses:
+            '200':
+              description: Updated
+            '404':
+              description: No such row
+        delete:
+          summary: Delete a row
+          responses:
+            '204':
+              description: Deleted
+            '404':
+              description: No such row

@@ -1,0 +1,276 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: quarkus-crud-postgresql
+  title: Quarkus CRUD service on PostgreSQL
+  description: |
+    Creates a Quarkus service with a web UI for create / read / update / delete over a
+    PostgreSQL table you name, plus a GitOps repository that runs the application Pod
+    and the database Pod and creates the table.
+  tags:
+    - quarkus
+    - java
+    - postgresql
+    - gitops
+    - argocd
+  annotations:
+    backstage.io/techdocs-ref: dir:.
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Your service
+      required:
+        - name
+        - owner
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Names the repositories, the Kubernetes resources and the Maven artifact.
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+          maxLength: 40
+          ui:help: 'Lowercase letters, digits and dashes (a Kubernetes DNS label), max 40 characters.'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: Shown on the component page in the catalog.
+          default: Quarkus CRUD service over a PostgreSQL table
+        owner:
+          title: Owner
+          type: string
+          description: Group or user that owns the new component.
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind:
+                - Group
+                - User
+
+    - title: Database table
+      required:
+        - tableName
+      properties:
+        tableName:
+          title: Table name
+          type: string
+          description: >
+            The table the service reads and writes. It is created with the columns
+            id, first_name, second_name, age and postcode.
+          pattern: '^[a-z_][a-z0-9_]*$'
+          maxLength: 63
+          default: people
+          ui:help: 'Lowercase letters, digits and underscores, starting with a letter or underscore.'
+        dbName:
+          title: Database name
+          type: string
+          pattern: '^[a-z_][a-z0-9_]*$'
+          maxLength: 63
+          default: appdb
+        dbUser:
+          title: Database user
+          type: string
+          pattern: '^[a-z_][a-z0-9_]*$'
+          maxLength: 63
+          default: appuser
+        dbPassword:
+          title: Database password
+          type: string
+          description: >
+            Written to a Secret in the GitOps repository in plain text. Fine for a demo;
+            replace it with a Sealed Secret or External Secret for anything else.
+          default: change-me-demo-only
+          ui:widget: password
+
+    - title: Where it runs
+      required:
+        - namespace
+        - imageRegistry
+        - imageOrganization
+        - baseDomain
+      properties:
+        namespace:
+          title: Namespace
+          type: string
+          description: Namespace ArgoCD deploys into. Created on first sync.
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+          maxLength: 63
+          default: rabobank-demo
+        argocdNamespace:
+          title: ArgoCD namespace
+          type: string
+          description: Where the ArgoCD Application object is created.
+          default: openshift-gitops
+        imageRegistry:
+          title: Image registry
+          type: string
+          default: quay.io
+        imageOrganization:
+          title: Image organization
+          type: string
+          description: Registry account the application image is pushed to.
+        baseDomain:
+          title: Cluster ingress domain
+          type: string
+          description: >
+            The app is exposed at <name>.<domain>. On OpenShift this is the value of
+            `oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'`.
+          default: apps.example.com
+
+    - title: Repository
+      required:
+        - repoUrl
+      properties:
+        repoUrl:
+          title: Application repository
+          type: string
+          description: >
+            The GitOps repository is created alongside it with a `-gitops` suffix.
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+        repoVisibility:
+          title: Visibility
+          type: string
+          description: >
+            A private repository needs a git credential linked to the build service
+            account before the pipeline can clone it. Public needs no credential.
+          enum:
+            - private
+            - public
+          default: private
+
+  steps:
+    - id: fetch-app
+      name: Generate the Quarkus service
+      action: fetch:template
+      input:
+        url: ./skeleton
+        targetPath: ./app
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          tableName: ${{ parameters.tableName }}
+          imageUrl: ${{ parameters.imageRegistry }}/${{ parameters.imageOrganization }}/${{ parameters.name }}:latest
+          gitopsHost: ${{ parameters.repoUrl | parseRepoUrl | pick('host') }}
+          gitopsOwner: ${{ parameters.repoUrl | parseRepoUrl | pick('owner') }}
+          gitopsRepo: ${{ parameters.repoUrl | parseRepoUrl | pick('repo') }}-gitops
+
+    - id: fetch-gitops
+      name: Generate the GitOps manifests
+      action: fetch:template
+      input:
+        url: ./gitops
+        targetPath: ./gitops
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          tableName: ${{ parameters.tableName }}
+          dbName: ${{ parameters.dbName }}
+          dbUser: ${{ parameters.dbUser }}
+          dbPassword: ${{ parameters.dbPassword }}
+          namespace: ${{ parameters.namespace }}
+          argocdNamespace: ${{ parameters.argocdNamespace }}
+          baseDomain: ${{ parameters.baseDomain }}
+          imageRegistry: ${{ parameters.imageRegistry }}
+          imageUrl: ${{ parameters.imageRegistry }}/${{ parameters.imageOrganization }}/${{ parameters.name }}:latest
+          gitUrl: https://${{ parameters.repoUrl | parseRepoUrl | pick('host') }}/${{ parameters.repoUrl | parseRepoUrl | pick('owner') }}/${{ parameters.repoUrl | parseRepoUrl | pick('repo') }}.git
+          repoHost: ${{ parameters.repoUrl | parseRepoUrl | pick('host') }}
+          repoOwner: ${{ parameters.repoUrl | parseRepoUrl | pick('owner') }}
+          repoName: ${{ parameters.repoUrl | parseRepoUrl | pick('repo') }}
+          gitopsHost: ${{ parameters.repoUrl | parseRepoUrl | pick('host') }}
+          gitopsOwner: ${{ parameters.repoUrl | parseRepoUrl | pick('owner') }}
+          gitopsRepo: ${{ parameters.repoUrl | parseRepoUrl | pick('repo') }}-gitops
+
+    - id: publish-app
+      name: Publish the application repository
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        sourcePath: ./app
+        description: ${{ parameters.description }}
+        defaultBranch: main
+        repoVisibility: ${{ parameters.repoVisibility }}
+
+    - id: publish-gitops
+      name: Publish the GitOps repository
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl | parseRepoUrl | pick('host') }}?owner=${{ parameters.repoUrl | parseRepoUrl | pick('owner') }}&repo=${{ parameters.repoUrl | parseRepoUrl | pick('repo') }}-gitops
+        sourcePath: ./gitops
+        description: Deployment manifests for ${{ parameters.name }}
+        defaultBranch: main
+        repoVisibility: ${{ parameters.repoVisibility }}
+
+    - id: register
+      name: Register in the catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish-app'].output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Application repository
+        url: ${{ steps['publish-app'].output.remoteUrl }}
+        icon: github
+      - title: GitOps repository
+        url: ${{ steps['publish-gitops'].output.remoteUrl }}
+        icon: github
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps['register'].output.entityRef }}
+    text:
+      - title: Next steps
+        content: |
+          The repositories are created. The Tekton pipeline in the GitOps repository
+          builds and pushes the image, so nothing needs building by hand — but it does
+          need credentials and permission, which are deliberately not committed to Git.
+
+          **1. Grant the build service account what it needs.** Requires
+          OpenShift Pipelines, and a cluster administrator for the first command:
+
+          ```
+          oc adm policy add-scc-to-user pipelines-scc \
+              -z ${{ parameters.name }}-build -n ${{ parameters.namespace }}
+
+          oc create secret docker-registry ${{ parameters.name }}-registry \
+              --docker-server=${{ parameters.imageRegistry }} \
+              --docker-username=<user> --docker-password=<token> \
+              -n ${{ parameters.namespace }}
+          oc secrets link ${{ parameters.name }}-build ${{ parameters.name }}-registry \
+              -n ${{ parameters.namespace }}
+          ```
+
+          The namespace must exist first: `oc new-project ${{ parameters.namespace }}`.
+
+          Because the application repository is **${{ parameters.repoVisibility }}**,
+          the pipeline also needs a git credential to clone it:
+
+          ```
+          oc create secret generic ${{ parameters.name }}-git \
+              --type=kubernetes.io/basic-auth \
+              --from-literal=username=<user> --from-literal=password=<token> \
+              -n ${{ parameters.namespace }}
+          oc annotate secret ${{ parameters.name }}-git \
+              tekton.dev/git-0=https://${{ parameters.repoUrl | parseRepoUrl | pick('host') }} \
+              -n ${{ parameters.namespace }}
+          oc secrets link ${{ parameters.name }}-build ${{ parameters.name }}-git \
+              -n ${{ parameters.namespace }}
+          ```
+
+          **2. Hand the manifests to ArgoCD.** From a clone of the GitOps repository:
+
+          ```
+          kubectl apply -n ${{ parameters.argocdNamespace }} -f argocd/application.yaml
+          ```
+
+          ArgoCD then works through the sync waves: the PostgreSQL Pod, the job that
+          creates `${{ parameters.tableName }}`, the pipeline run that builds
+          `${{ parameters.imageRegistry }}/${{ parameters.imageOrganization }}/${{ parameters.name }}:latest`,
+          and finally the Quarkus Pod. The UI lands at
+          `https://${{ parameters.name }}.${{ parameters.baseDomain }}`.

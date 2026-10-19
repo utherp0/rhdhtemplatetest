@@ -1,0 +1,37 @@
+# Apply this once to hand the manifests/ directory over to ArgoCD:
+#   kubectl apply -n openshift-gitops -f argocd/application.yaml
+#
+# Or drop it into an app-of-apps repository instead of applying it by hand.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.name }}
+  namespace: ${{ values.argocdNamespace }}
+  labels:
+    app.kubernetes.io/name: ${{ values.name }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://${{ values.gitopsHost }}/${{ values.gitopsOwner }}/${{ values.gitopsRepo }}.git
+    targetRevision: HEAD
+    path: manifests
+    directory:
+      # manifests/tekton/ holds the build pipeline.
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
